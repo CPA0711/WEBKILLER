@@ -490,7 +490,7 @@ class WebKiller:
 
 def main():
     print(BANNER)
-    print(f"{Colors.RED}📍 CPA DEVELOPMENT{Colors.END}\n")
+    print(f"{Colors.CYAN}📍 CYBER POEPLE ATTACK DDoS TOOLColors.END}\n")
     
     killer = WebKiller()
     killer.parse_args()
