@@ -38,7 +38,7 @@ VERSION = "2.1"
 BANNER = f"""
 {Colors.RED}
 ╔══════════════════════════════════════════════════════════════╗
-║   WEB KILLER v{VERSION} URL FLOODER                           ║
+║   WEB KILLER v{VERSION} URL FLOODER                               ║
 ║   CPA TOOLS DEVELOPMENT                                      ║
 ╚══════════════════════════════════════════════════════════════╝
 {Colors.END}"""
