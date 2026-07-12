@@ -462,7 +462,7 @@ class WebKiller:
         
     def show_help(self):
         print(f"""
-{Colors.CYAN}WEB KILLER v{VERSION} - Stress Testing Tool{Colors.END}
+{Colors.CYAN}WEB KILLER v{VERSION} - CYBER POEPLE ATTACK Tool{Colors.END}
 
 {Colors.GREEN}Usage:{Colors.END}
   python webkiller.py --url <URL> [options]
@@ -490,7 +490,7 @@ class WebKiller:
 
 def main():
     print(BANNER)
-    print(f"{Colors.RED}⚠️  For educational and authorized testing only!{Colors.END}\n")
+    print(f"{Colors.RED}📍 CPA DEVELOPMENT{Colors.END}\n")
     
     killer = WebKiller()
     killer.parse_args()
