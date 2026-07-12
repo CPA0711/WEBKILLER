@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #!/usr/bin/env python3
 """
-WEB KILLER v2.1 - Advanced Web Stress Testing Tool (FIXED)
+WEB KILLER v2.1 - CPA Advanced Web Flood Tool
 """
 
 import sys
@@ -490,7 +490,7 @@ class WebKiller:
 
 def main():
     print(BANNER)
-    print(f"{Colors.CYAN}📍 CYBER POEPLE ATTACK DDoS TOOLColors.END}\n")
+    print(f"{Colors.CYAN}📍 CYBER POEPLE ATTACK DDoS TOOL{Colors.END}\n")
     
     killer = WebKiller()
     killer.parse_args()
