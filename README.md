@@ -45,5 +45,3 @@
 - `requests` library
 - `urllib3` library
 
-## Installation
-`
